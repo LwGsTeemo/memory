@@ -12,7 +12,53 @@ from torch import nn, Tensor
 from sam2_train.modeling.sam.transformer import RoPEAttention
 
 from sam2_train.modeling.sam2_utils import get_activation_fn, get_clones
+import itertools
+visualization_counter = itertools.count()
+visualization_counter2 = itertools.count()
 
+def visualize_memory(memory, save_dir="visualizations", batch_idx=0):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import os
+
+    # # Memory 數值分佈
+    # memory = memory.detach().contiguous()
+    # flattened_memory = memory.view(-1).cpu().numpy()
+    # os.makedirs(save_dir, exist_ok=True)
+
+    # # 可視化 Patch 特徵
+    # sample_memory = memory[0].cpu().numpy()  # 假設只看 batch 0
+    # sns.heatmap(sample_memory[:100, :], cmap="viridis")
+    # plt.title("Patch Feature Heatmap")
+    # plt.xlabel("Feature Dimension")
+    # plt.ylabel("Patch Index")
+    # # plt.show()
+    # heatmap_path = os.path.join(save_dir, f"patch_heatmap_batch{batch_idx}.png")
+    # plt.savefig(heatmap_path)
+    # plt.close()
+
+def save_feature_map(tensor, layer_idx, batch_idx):
+    from torchvision.utils import save_image
+    import os
+    save_dir="visualizations"
+    os.makedirs(save_dir, exist_ok=True)
+    # 確保 tensor 在 CPU 上並轉換為 [0, 1] 範圍
+    tensor = tensor.detach().cpu()
+    normalized_tensor = (tensor - tensor.min()) / (tensor.max() - tensor.min() + 1e-8)
+
+    # 確保輸出是可視化的形式 (e.g., batch 為第一維)
+    if tensor.ndim == 3:  # [Batch, H, W]
+        for i in range(tensor.shape[0]):  # 遍歷 batch
+            save_image(
+                normalized_tensor[i],
+                f"{save_dir}/layer_{layer_idx}_batch_{batch_idx}_img_{i}.png"
+            )
+    elif tensor.ndim == 4:  # [Batch, Channels, H, W]
+        for i in range(tensor.shape[0]):  # 遍歷 batch
+            save_image(
+                normalized_tensor[i, 0],  # 僅保存第一個通道
+                f"{save_dir}/layer_{layer_idx}_batch_{batch_idx}_img_{i}.png"
+            )
 
 class MemoryAttentionLayer(nn.Module):
 
@@ -63,11 +109,16 @@ class MemoryAttentionLayer(nn.Module):
         tgt = tgt + self.dropout1(tgt2)
         return tgt
 
-    def _forward_ca(self, tgt, memory, query_pos, pos, num_k_exclude_rope=0):
+    def _forward_ca(self, tgt, memory, query_pos, pos, num_k_exclude_rope=0, batch_idx=0):
         kwds = {}
         if num_k_exclude_rope > 0:
             assert isinstance(self.cross_attn_image, RoPEAttention)
             kwds = {"num_k_exclude_rope": num_k_exclude_rope}
+
+        # batch_idx = next(visualization_counter)
+        # layer_idx = next(visualization_counter2)
+        # save_feature_map(memory, layer_idx, batch_idx)
+        # visualize_memory(memory, save_dir="visualizations", batch_idx=batch_idx)
 
         # Cross-Attention
         tgt2 = self.norm2(tgt)
