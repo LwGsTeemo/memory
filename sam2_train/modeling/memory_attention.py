@@ -12,6 +12,10 @@ from torch import nn, Tensor
 from sam2_train.modeling.sam.transformer import RoPEAttention
 
 from sam2_train.modeling.sam2_utils import get_activation_fn, get_clones
+
+from torchvision.utils import save_image
+import os
+from PIL import Image
 import itertools
 visualization_counter = itertools.count()
 visualization_counter2 = itertools.count()
@@ -36,6 +40,72 @@ def visualize_memory(memory, save_dir="visualizations", batch_idx=0):
     # heatmap_path = os.path.join(save_dir, f"patch_heatmap_batch{batch_idx}.png")
     # plt.savefig(heatmap_path)
     # plt.close()
+
+def reshape_tgt_to_image(tgt):
+    # 假設 `tgt` 為 [B, 4096, 256]
+    B, N, D = tgt.shape
+
+    # 確認序列長度是否為 4096 並可映射為 64x64
+    assert N == 64 * 64, "N must be 4096 (64x64)"
+
+    # 降維到 3 通道
+    tgt = tgt.permute(0, 2, 1)  # [B, 256, 4096]
+    tgt = tgt.view(B, D, 64, 64)  # [B, 256, 64, 64]
+
+    # 選取前 3 通道
+    tgt_image = tgt[:, :3, :, :]  # [B, 3, 64, 64]
+    return tgt_image
+
+def save_tensor_as_rgb_image(tensor, save_path):
+    # 如果張量是 [C, H, W]，轉換為 [H, W, C]
+    if tensor.dim() == 3 and tensor.size(0) == 3:
+        tensor = tensor.permute(1, 2, 0)  # [H, W, C]
+    
+    # 如果範圍不是 [0, 1]，進行標準化
+    if tensor.max() > 1.0:
+        tensor = (tensor - tensor.min()) / (tensor.max() - tensor.min())
+    
+    # 將範圍轉換到 [0, 255]
+    tensor = (tensor * 255).byte()
+    
+    # 將張量轉為 numpy 格式
+    np_image = tensor.cpu().numpy()
+    
+    # 使用 PIL 保存為圖片
+    img = Image.fromarray(np_image, mode='RGB')
+    img.save(save_path)
+
+def save_tensor_as_image(tensor, save_path):
+    """
+    保存形狀為 [2, 4096, 256] 的張量作為 RGB 圖像。
+    """
+    # 確保是 3 維張量 [N, 4096, 256]
+    assert tensor.dim() == 3 and tensor.size(1) == 4096 and tensor.size(2) >= 3, \
+        "Tensor shape must be [N, 4096, 256] and at least 3 channels."
+    
+    # 取第一個 batch
+    tensor = tensor[0]  # shape [4096, 256]
+
+    # 將 4096 解構為 [64, 64]
+    h, w = 64, 64
+    tensor = tensor.view(h, w, -1)  # shape [64, 64, 256]
+    
+    # 提取前 3 個通道作為 RGB 圖像
+    tensor = tensor[:, :, :3]  # shape [64, 64, 3]
+    
+    # 標準化到範圍 [0, 1]
+    if tensor.max() > 1.0:
+        tensor = (tensor - tensor.min()) / (tensor.max() - tensor.min())
+    
+    # 轉換到 [0, 255]
+    tensor = (tensor * 255).byte()
+    
+    # 將張量轉為 numpy 格式
+    np_image = tensor.cpu().numpy()
+    
+    # 保存圖片
+    img = Image.fromarray(np_image, mode='RGB')
+    img.save(save_path)
 
 def save_feature_map(tensor, layer_idx, batch_idx):
     from torchvision.utils import save_image
@@ -107,6 +177,14 @@ class MemoryAttentionLayer(nn.Module):
         q = k = tgt2 + query_pos if self.pos_enc_at_attn else tgt2
         tgt2 = self.self_attn(q, k, v=tgt2)
         tgt = tgt + self.dropout1(tgt2)
+
+        # # print(tgt.shape)
+        # batch_idx = next(visualization_counter)
+        # layer_idx = next(visualization_counter2)
+        # save_path = f"tgtImage/tgt_batch{batch_idx}_layer{layer_idx}.png"
+        # # save_tensor_as_rgb_image(tgt_image, save_path)
+        # save_tensor_as_image(tgt, save_path)
+        # # save_tensor_as_image(tgt, batch_idx, layer_idx)
         return tgt
 
     def _forward_ca(self, tgt, memory, query_pos, pos, num_k_exclude_rope=0, batch_idx=0):

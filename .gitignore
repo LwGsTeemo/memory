@@ -167,3 +167,6 @@ runs/
 *.pt
 external/
 checkpoints/
+tgtImage/
+visualizations_wholeFeature/
+visualtest.py
